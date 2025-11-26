@@ -1,0 +1,134 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+  engineType = "library" 
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------
+// MODEL: AdminProfile
+// ------------------------------------------------
+model AdminProfile {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // We store the Supabase Auth ID here. 
+  // In the DB it is a Foreign Key, but in Prisma we treat it as a UUID string to avoid schema errors.
+  supabase_uid String?  @unique @db.Uuid 
+  email        String   @unique
+  full_name    String?
+  role         Role     @default(ADMIN)
+  permissions  Json?    @default("{}")
+  
+  // Relations
+  queues_created QueueEvent[]
+  entries_served QueueEntry[]
+
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@map("admin_profiles")
+}
+
+// ------------------------------------------------
+// MODEL: QueueEvent
+// ------------------------------------------------
+model QueueEvent {
+  id                  String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                String
+  slug                String       @unique
+  description         String?
+  status              QueueStatus  @default(OPEN)
+  
+  // Closing Logic
+  close_condition     CloseCondition @default(MANUAL)
+  close_at_datetime   DateTime?      @db.Timestamptz(6)
+  close_after_minutes Int?
+
+  // Config
+  form_config         Json         @default("[]")
+  settings            Json?        @default("{}")
+  
+  // Relations
+  created_by          String?      @db.Uuid
+  creator             AdminProfile? @relation(fields: [created_by], references: [id])
+  
+  entries             QueueEntry[]
+  
+  created_at          DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@map("queue_events")
+}
+
+// ------------------------------------------------
+// MODEL: QueueEntry
+// ------------------------------------------------
+model QueueEntry {
+  id                BigInt      @id @default(autoincrement())
+  
+  queue_id          String      @db.Uuid
+  queue             QueueEvent  @relation(fields: [queue_id], references: [id], onDelete: Cascade)
+
+  // Access & Identity
+  token             String      @unique
+  student_identifier String
+  phone_raw         String
+  phone_normalized  String
+  email             String?
+  
+  // Data
+  form_data         Json        @default("{}")
+  position_rank     Int
+  status            EntryStatus @default(WAITING)
+  
+  // Admin Interaction
+  served_by         String?      @db.Uuid
+  admin             AdminProfile? @relation(fields: [served_by], references: [id])
+  
+  admin_notes       String?
+  admin_message     String?
+  notifications_log Json?       @default("[]")
+
+  created_at        DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime    @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([queue_id, status, position_rank])
+  @@map("queue_entries")
+}
+
+// ------------------------------------------------
+// ENUMS
+// ------------------------------------------------
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  @@map("user_role")
+}
+
+enum QueueStatus {
+  OPEN
+  PAUSED
+  CLOSED
+  ARCHIVED
+  @@map("queue_status")
+}
+
+enum CloseCondition {
+  MANUAL
+  TIME
+  COUNTDOWN
+  @@map("close_condition")
+}
+
+enum EntryStatus {
+  WAITING
+  SERVING
+  COMPLETED
+  REMOVED
+  NO_SHOW
+  @@map("entry_status")
+}
